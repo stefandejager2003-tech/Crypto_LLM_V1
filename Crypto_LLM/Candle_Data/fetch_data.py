@@ -6,8 +6,8 @@ from tqdm import tqdm
 
 # ---------------- CONFIGURATION (EDIT ONLY THIS) ----------------
 SYMBOL = 'BTC/USDT:USDT'
-TIMEFRAME = '15m'    # '1m', '5m', '15m', '1h', '4h', '1d'
-PERIOD = '3y'        # '30d', '3m', '6m', '1y', '2y', '3y'
+TIMEFRAME = '1h'    # '1m', '5m', '15m', '1h', '4h', '1d'
+PERIOD = '3m'        # '3m', '1y', '3y'
 # ---------------------------------------------------------------
 
 
@@ -39,12 +39,11 @@ def fetch_data():
     clean_tf = TIMEFRAME.lower().replace('/', '').replace(':', '')
     symbol_clean = SYMBOL.split('/')[0].lower()
 
-    # Convert timeframe to folder name (e.g. 15M_Candle_Data)
+    # Folder = 15M_Candle_Data
     tf_folder_name = f"{clean_tf.upper()}_Candle_Data"
 
-    base_dir = os.path.join(script_dir, "Candle_Data")
-    data_dir = os.path.join(base_dir, tf_folder_name)
-
+    # Directly inside project root
+    data_dir = os.path.join(script_dir, tf_folder_name)
     os.makedirs(data_dir, exist_ok=True)
 
     filename = os.path.join(data_dir, f"{symbol_clean}_{clean_tf}_{PERIOD}.csv")
