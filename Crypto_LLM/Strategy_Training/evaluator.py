@@ -4,15 +4,23 @@ import os
 import sys
 
 # Constants for your specific setup
-FEE = 0.0006 
+FEE = 0.002
 TIMEFRAME = "1h"
 TIMEFRAME_MULTIPLIERS = {"1h": 8760, "4h": 2190, "1d": 365}
 
-def fetch_data(period):
-    # Load your specific CSV here
-    df = pd.read_csv(f"../data/btc_1h_{period}.csv")
-    df['timestamp'] = pd.to_datetime(df['timestamp'])
-    df.set_index('timestamp', inplace=True)
+def fetch_data(symbol, timeframe, period):
+    """
+    Constructs: ../data/btc_1h_3y.csv 
+    OR ../data/eth_4h_1y.csv based on your inputs.
+    """
+    filename = f"../data/{symbol}_{timeframe}_{period}.csv"
+    
+    if not os.path.exists(filename):
+        print(f"❌ Error: File {filename} not found!")
+        return pd.DataFrame()
+        
+    df = pd.read_csv(filename)
+    # ... rest of your timestamp logic ...
     return df
 
 def evaluate_strategy(target_period):
@@ -131,9 +139,22 @@ def evaluate_strategy(target_period):
         return -10.0
 
 if __name__ == "__main__":
-    # This runs when the Auto Loop calls: python evaluator.py
-    # You can change "3y" to whatever period you want to test
-    score = evaluate_strategy("3y")
+    # Defaults
+    target_symbol = "btc"
+    target_tf = "1h"
+    target_period = "3y"
+
+    # If the Auto Loop sends arguments, use them!
+    # Example command: python evaluator.py eth 4h 1y
+    if len(sys.argv) > 3:
+        target_symbol = sys.argv[1]
+        target_tf = sys.argv[2]
+        target_period = sys.argv[3]
+
+    # Update global TIMEFRAME for Sharpe math
+    TIMEFRAME = target_tf 
     
-    # This is the line the Auto Loop is listening for!
+    # Run the evaluation
+    score = evaluate_strategy(target_symbol, target_tf, target_period)
+    
     print(f"FINAL_RESULT:{score}")
