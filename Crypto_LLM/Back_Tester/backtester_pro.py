@@ -6,11 +6,18 @@ import importlib.util
 from tabulate import tabulate
 
 class ProBacktester:
-    def __init__(self, strategy_path="strategy.py", initial_capital=200, fee=0.002):
+    def __init__(self, strategy_path="strategy.py", initial_capital=200, fee=0.002, timeframe="1h"):
         self.strategy_path = strategy_path
         self.initial_capital = initial_capital
         self.fee = fee 
+        self.timeframe = timeframe 
         self.results = {}
+        
+        # Dynamic Multipliers for Sharpe Ratio (Intervals per year)
+        self.tf_multipliers = {
+            "1m": 525600, "5m": 105120, "15m": 35040, 
+            "1h": 8760, "4h": 2190, "1d": 365
+        }
 
     def _load_strategy(self):
         """Dynamically loads and validates the strategy module."""
@@ -25,7 +32,7 @@ class ProBacktester:
             
             # VALIDATION: Check for the required function
             if not hasattr(strat_mod, 'get_signals'):
-                raise AttributeError("strategy.py must contain a 'get_signals(df)' function.")
+                raise AttributeError("Strategy file must contain a 'get_signals(df)' function.")
                 
             return strat_mod
         except Exception as e:
@@ -37,21 +44,28 @@ class ProBacktester:
             print(f"⚠️ Skipping {label}: File not found at {data_path}")
             return
 
-        df = pd.read_csv(data_path)
-        
-        # Load and execute strategy
+        df = pd.read_csv(data_path, index_col=0, parse_dates=True)
         strat = self._load_strategy()
-        df = strat.get_signals(df)
+        
+        # -------------------------------------------------------------
+        # DYNAMIC EXECUTION: Strategy calculates its own indicators here
+        # -------------------------------------------------------------
+        try:
+            df = strat.get_signals(df)
+        except Exception as e:
+            print(f"❌ Strategy Error in {label}: {e}")
+            print("👉 Ensure your strategy calculates its own indicators from raw OHLCV data.")
+            self.results[label] = {k: "ERROR" for k in ["Total Return (%)", "Win Rate (%)", "Sharpe", "Max DD"]}
+            return
 
         # VALIDATION: Ensure the user's script actually produced signals
         if 'signal' not in df.columns:
-            # Automatic Fix: If user has 'long_signal' and 'short_signal', merge them
             if 'long_signal' in df.columns and 'short_signal' in df.columns:
                 df['signal'] = 0
                 df.loc[df['long_signal'] == True, 'signal'] = 1
                 df.loc[df['short_signal'] == True, 'signal'] = -1
             else:
-                print(f"❌ Error in {label}: strategy.py failed to create a 'signal' column.")
+                print(f"❌ Error in {label}: Strategy failed to create a 'signal' column.")
                 return
 
         # 1. Calculate Returns
@@ -90,15 +104,18 @@ class ProBacktester:
         drawdown = (df['equity_curve'] - rolling_max) / rolling_max
         max_dd = drawdown.min() * 100
         
-        # Risk Adjusted (Annualized for 1H)
+        # Risk Adjusted (Dynamic Annualization)
         returns = df['strat_return_net'].dropna()
-        sharpe = (returns.mean() / returns.std()) * np.sqrt(8760) if returns.std() != 0 else 0
+        intervals_per_year = self.tf_multipliers.get(self.timeframe.lower(), 8760)
+        sharpe = (returns.mean() / returns.std()) * np.sqrt(intervals_per_year) if returns.std() != 0 else 0
         
         # Smoothness (R-Squared)
         x = np.arange(len(df))
         y = df['equity_curve'].values
         slope, intercept = np.polyfit(x, y, 1)
-        r_squared = 1 - (np.sum((y - (slope * x + intercept))**2) / ((len(y) - 1) * np.var(y)))
+        # Handle zero variance edge case
+        variance = np.var(y)
+        r_squared = 1 - (np.sum((y - (slope * x + intercept))**2) / ((len(y) - 1) * variance)) if variance > 0 else 0
 
         return {
             "Total Return (%)": f"{total_return:.2f}%",
@@ -123,14 +140,17 @@ class ProBacktester:
         
         headers = ["Horizon"] + list(next(iter(self.results.values())).keys())
         print("\n" + "="*110)
-        print("📊 INSTITUTIONAL STRATEGY PERFORMANCE REPORT")
+        print(f"📊 INSTITUTIONAL STRATEGY PERFORMANCE REPORT ({self.timeframe.upper()})")
         print("="*110)
         print(tabulate(report_data, headers=headers, tablefmt="grid"))
 
 if __name__ == "__main__":
-    tester = ProBacktester(strategy_path=r"C:\Users\Stefa\OneDrive\Desktop\Crypto_LLM_V4\Crypto_LLM\strategy.py")
+    # You can now specify the timeframe when initializing the backtester
+    tester = ProBacktester(
+        strategy_path=r"C:\Users\Stefa\OneDrive\Desktop\Crypto_LLM_V4\Crypto_LLM\Strategy_Training\strategy.py",
+        timeframe="1h"
+    )
     
-    # YOUR SPECIFIC PATHS
     base_path = r"C:\Users\Stefa\OneDrive\Desktop\Crypto_LLM_V4\Crypto_LLM\Candle_Data\1H_Candle_Data"
     
     tester.run_test(os.path.join(base_path, "btc_1h_3m.csv"), "3-MONTH")
