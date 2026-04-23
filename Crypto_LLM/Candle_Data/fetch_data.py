@@ -1,146 +1,94 @@
 import os
 import time
 import pandas as pd
+import numpy as np
 import ccxt
 from tqdm import tqdm
 
-# ---------------- CONFIGURATION (EDIT ONLY THIS) ----------------
+# ---------------- CONFIGURATION ----------------
 SYMBOL = 'BTC/USDT:USDT'
-TIMEFRAME = '1h'    # '1m', '5m', '15m', '1h', '4h', '1d'
-PERIOD = '3m'        # '3m', '1y', '3y'
-# ---------------------------------------------------------------
+TIMEFRAME = '1h'    # Change this to '1m', '15m', etc.
+STATIC_PERIODS = ['3m', '1y', '3y'] # These stay static
+# -----------------------------------------------
 
-
-def fetch_data():
-    def parse_period(period_str):
-        unit = period_str[-1]
-        value = int(period_str[:-1])
-        if unit == 'y':
-            return value * 365
-        elif unit == 'm':
-            return value * 30
-        elif unit == 'd':
-            return value
-        else:
-            raise ValueError(f"Invalid period: {period_str}")
-
-    tf_to_hours = {
-        '1m': 1/60,
-        '5m': 5/60,
-        '15m': 15/60,
-        '1h': 1,
-        '4h': 4,
-        '1d': 24
-    }
-
-    # -------- PATH SETUP (YOUR FORMAT) --------
+def fetch_data_for_period(exchange, symbol, timeframe, period):
+    """Internal function to handle the fetch for a single period."""
     script_dir = os.path.dirname(os.path.abspath(__file__))
-
-    clean_tf = TIMEFRAME.lower().replace('/', '').replace(':', '')
-    symbol_clean = SYMBOL.split('/')[0].lower()
-
-    # Folder = 15M_Candle_Data
-    tf_folder_name = f"{clean_tf.upper()}_Candle_Data"
-
-    # Directly inside project root
-    data_dir = os.path.join(script_dir, tf_folder_name)
+    clean_tf = timeframe.lower().replace('/', '').replace(':', '')
+    symbol_clean = symbol.split('/')[0].lower()
+    
+    # Path setup
+    data_dir = os.path.join(script_dir, f"{clean_tf.upper()}_Candle_Data")
     os.makedirs(data_dir, exist_ok=True)
+    filename = os.path.join(data_dir, f"{symbol_clean}_{clean_tf}_{period}.csv")
 
-    filename = os.path.join(data_dir, f"{symbol_clean}_{clean_tf}_{PERIOD}.csv")
-    # -----------------------------------------
-
-    exchange = ccxt.bybit({'enableRateLimit': True})
-
+    # 1. Load Existing Data
     if os.path.exists(filename):
         df = pd.read_csv(filename, index_col=0, parse_dates=True)
-        df.index = pd.to_datetime(df.index)
-        print(f"[*] Found local data: {len(df)} candles")
+        since = int(df.index[-1].timestamp() * 1000) + 1
     else:
         df = pd.DataFrame()
+        val = int(period[:-1])
+        days = val * 365 if 'y' in period else val * 30
+        since = exchange.milliseconds() - (days * 24 * 60 * 60 * 1000)
 
-    days_to_fetch = parse_period(PERIOD)
-    now_ms = exchange.milliseconds()
-    hours_per_candle = tf_to_hours.get(TIMEFRAME, 1)
-
-    if not df.empty:
-        last_ts = int(df.index[-1].timestamp() * 1000)
-        since = last_ts + 1
-        ms_diff = now_ms - last_ts
-        total_needed = max(1, int(ms_diff / (1000 * 60 * 60 * hours_per_candle)))
-        print(f"[*] Resuming {PERIOD} ({TIMEFRAME})...")
-    else:
-        since = now_ms - (days_to_fetch * 24 * 60 * 60 * 1000)
-        candles_per_day = int(24 / hours_per_candle)
-        total_needed = days_to_fetch * candles_per_day
-        print(f"[*] Fresh fetch: {PERIOD} ({TIMEFRAME})...")
-
+    # 2. Fetch Loop
     all_ohlcv = []
-    batch_size = 200
-    pbar = tqdm(total=total_needed, desc=f"{TIMEFRAME} | {PERIOD}")
-
-    max_retries = 5
-    retry_count = 0
-
+    pbar = tqdm(desc=f"Fetching {timeframe} | {period}", leave=False)
+    
     while True:
         try:
-            ohlcv = exchange.fetch_ohlcv(
-                SYMBOL,
-                timeframe=TIMEFRAME,
-                since=since,
-                limit=batch_size
-            )
-
-            if not ohlcv:
-                retry_count += 1
-                if retry_count > max_retries:
-                    break
-                time.sleep(2)
-                continue
-
-            retry_count = 0
+            ohlcv = exchange.fetch_ohlcv(symbol, timeframe, since, limit=1000)
+            if not ohlcv: break
             all_ohlcv.extend(ohlcv)
-
-            last_ts = ohlcv[-1][0]
-            since = last_ts + 1
-
+            since = ohlcv[-1][0] + 1
             pbar.update(len(ohlcv))
-
-            if last_ts >= (exchange.milliseconds() - 3600000):
-                print("\n[*] Up to date.")
-                break
-
+            if ohlcv[-1][0] >= (exchange.milliseconds() - 60000): break
             time.sleep(exchange.rateLimit / 1000)
-
         except Exception as e:
-            print(f"[!] API Error: {e}")
             time.sleep(5)
-
+            
     pbar.close()
 
+    # 3. Processing & Strict Tail Trimming
     if all_ohlcv:
-        new_df = pd.DataFrame(
-            all_ohlcv,
-            columns=['timestamp', 'open', 'high', 'low', 'close', 'volume']
-        )
-        new_df['timestamp'] = pd.to_datetime(new_df['timestamp'], unit='ms')
+        new_df = pd.DataFrame(all_ohlcv, columns=['ts', 'open', 'high', 'low', 'close', 'volume'])
+        new_df['timestamp'] = pd.to_datetime(new_df['ts'], unit='ms')
         new_df.set_index('timestamp', inplace=True)
+        df = pd.concat([df, new_df.drop(columns=['ts'])])
+        
+    if df.empty: return
 
-        df = pd.concat([df, new_df])
-        df = df[~df.index.duplicated(keep='last')]
-        df.sort_index(inplace=True)
+    # Remove duplicates and ensure chronological order
+    df = df[~df.index.duplicated(keep='last')].sort_index()
 
-        candles_per_day = int(24 / hours_per_candle)
-        max_rows = parse_period(PERIOD) * candles_per_day
+    # --- THE SLIDING WINDOW (Strict 3m, 1y, 3y) ---
+    val = int(period[:-1])
+    if 'y' in period:
+        cutoff_date = df.index[-1] - pd.DateOffset(years=val)
+    else: # 'm'
+        cutoff_date = df.index[-1] - pd.DateOffset(months=val)
 
-        if len(df) > max_rows:
-            df = df.tail(max_rows)
+    # Only keep data AFTER the cutoff
+    df = df[df.index >= cutoff_date]
 
-        df.to_csv(filename)
-        print(f"[*] Saved: {filename} ({len(df)} rows)")
+    # --- V2 FEATURES (Calculate AFTER trimming to save time) ---
+    df['log_return'] = np.log(df['close'] / df['close'].shift(1))
+    df['atr_14'] = (df['high'] - df['low']).rolling(14).mean()
+    df['close_zscore_50'] = (df['close'] - df['close'].rolling(50).mean()) / df['close'].rolling(50).std()
+    
+    # Save the cleaned, perfectly-sized window
+    df.dropna().to_csv(filename)
+    print(f"[✓] Window Updated: {filename} ({len(df)} rows | Starts: {df.index[0]})")
 
-    return df
-
+def run_multi_fetch():
+    print(f"🚀 Starting Multi-Regime Fetch for {TIMEFRAME}...")
+    exchange = ccxt.bybit({'enableRateLimit': True})
+    
+    for period in STATIC_PERIODS:
+        fetch_data_for_period(exchange, SYMBOL, TIMEFRAME, period)
+    
+    print("\n✅ All regimes are up to date.")
 
 if __name__ == "__main__":
-    df = fetch_data()
-    print(f"[✓] Done. Total rows: {len(df)}")
+    run_multi_fetch()
