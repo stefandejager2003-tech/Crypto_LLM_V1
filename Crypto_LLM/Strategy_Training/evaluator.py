@@ -10,17 +10,35 @@ TIMEFRAME_MULTIPLIERS = {"1h": 8760, "4h": 2190, "1d": 365}
 
 def fetch_data(symbol, timeframe, period):
     """
-    Constructs: ../data/btc_1h_3y.csv 
-    OR ../data/eth_4h_1y.csv based on your inputs.
+    Dynamically resolves paths like:
+    ./Candle_Data/1H_Candle_Data/btc_1h_3y.csv
     """
-    filename = f"../data/{symbol}_{timeframe}_{period}.csv"
+    # 1. Standardize inputs to match file system
+    clean_tf = timeframe.lower()
+    symbol_base = symbol.split('/')[0].lower()
+    tf_folder = f"{clean_tf.upper()}_Candle_Data"
     
+    # 2. Build the path relative to the script's location
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    filename = os.path.join(
+        script_dir, 
+        "Candle_Data", 
+        tf_folder, 
+        f"{symbol_base}_{clean_tf}_{period}.csv"
+    )
+    
+    # 3. Validation & Loading
     if not os.path.exists(filename):
-        print(f"❌ Error: File {filename} not found!")
+        print(f"❌ Error: Data not found at {filename}")
+        print(f"👉 Ensure you ran 'fetch_data.py' for {timeframe} | {period} first.")
         return pd.DataFrame()
         
-    df = pd.read_csv(filename)
-    # ... rest of your timestamp logic ...
+    df = pd.read_csv(filename, index_col=0, parse_dates=True)
+    
+    # Ensure the index is a proper DatetimeIndex for the backtest
+    if not isinstance(df.index, pd.DatetimeIndex):
+        df.index = pd.to_datetime(df.index)
+        
     return df
 
 def evaluate_strategy(target_period):
