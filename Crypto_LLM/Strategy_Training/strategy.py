@@ -4,7 +4,14 @@ import numpy as np
 def get_signals(df):
     """
     Generate trading signals based on CVD trend, z‑scores, and volume,
-    with ATR‑based stop loss and 10‑bar time exit.
+    with ATR‑based stop loss and z‑score based exit.
+    Entry conditions:
+    - Long: close_zscore_50 < -1.5, cvd_trend > 0, volume_zscore_24 > 0.5
+    - Short: close_zscore_50 > 1.5, cvd_trend < 0, volume_zscore_24 > 0.5
+    Exit conditions:
+    - Long: close_zscore_50 crosses above -0.5
+    - Short: close_zscore_50 crosses below 0.5
+    Stop loss: 2 * ATR from entry price.
     """
     # Ensure required columns exist (they should be pre‑computed)
     required = ['cvd_trend', 'close_zscore_50', 'volume_zscore_24', 'atr_14']
@@ -73,10 +80,10 @@ def get_signals(df):
         
         # If flat, check entry conditions
         if position == 0:
-            # Long condition (HYPOTHESIS: Buy when close_zscore_50 < -2.0, cvd_trend > 0, volume_zscore_24 > 2.0)
+            # Long condition (HYPOTHESIS: Buy when close_zscore_50 < -1.5, cvd_trend > 0, volume_zscore_24 > 0.5)
             if (row['cvd_trend'] > 0 and 
-                row['close_zscore_50'] < -2.0 and 
-                row['volume_zscore_24'] > 2.0):
+                row['close_zscore_50'] < -1.5 and 
+                row['volume_zscore_24'] > 0.5):
                 position = 1
                 entry_price = close
                 entry_idx = i
@@ -88,8 +95,8 @@ def get_signals(df):
                 df.loc[i, 'position_size'] = 1.0 / atr if atr > 0 else 1.0
             # Short condition (symmetric opposite for mean reversion)
             elif (row['cvd_trend'] < 0 and 
-                  row['close_zscore_50'] > 2.0 and 
-                  row['volume_zscore_24'] > 2.0):
+                  row['close_zscore_50'] > 1.5 and 
+                  row['volume_zscore_24'] > 0.5):
                 position = -1
                 entry_price = close
                 entry_idx = i
