@@ -44,8 +44,8 @@ def get_signals(df):
             elif position == -1 and high >= stop_price:
                 stop_triggered = True
             
-            # Check time exit
-            time_exit = i >= exit_idx
+            # Time exit disabled
+            time_exit = False
             
             # Check z-score exit condition (HYPOTHESIS: Exit long when close_zscore_50 > -0.5, exit short when close_zscore_50 < 0.5)
             zscore_exit = False
@@ -73,10 +73,10 @@ def get_signals(df):
         
         # If flat, check entry conditions
         if position == 0:
-            # Long condition (HYPOTHESIS: Buy when close_zscore_50 < -1.5, cvd_trend > 0, volume_zscore_24 > 1)
+            # Long condition (HYPOTHESIS: Buy when close_zscore_50 < -2.0, cvd_trend > 0, volume_zscore_24 > 2.0)
             if (row['cvd_trend'] > 0 and 
-                row['close_zscore_50'] < -1.5 and 
-                row['volume_zscore_24'] > 1.0):
+                row['close_zscore_50'] < -2.0 and 
+                row['volume_zscore_24'] > 2.0):
                 position = 1
                 entry_price = close
                 entry_idx = i
@@ -88,8 +88,8 @@ def get_signals(df):
                 df.loc[i, 'position_size'] = 1.0 / atr if atr > 0 else 1.0
             # Short condition (symmetric opposite for mean reversion)
             elif (row['cvd_trend'] < 0 and 
-                  row['close_zscore_50'] > 1.5 and 
-                  row['volume_zscore_24'] > 1.0):
+                  row['close_zscore_50'] > 2.0 and 
+                  row['volume_zscore_24'] > 2.0):
                 position = -1
                 entry_price = close
                 entry_idx = i
