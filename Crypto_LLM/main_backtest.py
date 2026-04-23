@@ -251,9 +251,9 @@ class QuantitativeEvaluator:
 # Example usage
 if __name__ == "__main__":
     # Test with a simple strategy
-    from NEW.strategy import get_signals
+    from Strategy_Training.strategy import get_signals
     
-    evaluator = QuantitativeEvaluator("data/btc_1h_1y.csv")
+    evaluator = QuantitativeEvaluator("data/btc_1h_3y_v2.csv")
     
     # Define parameter grid for optimization
     param_grid = {
