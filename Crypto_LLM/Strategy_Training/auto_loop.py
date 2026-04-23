@@ -98,11 +98,22 @@ def run_experiment(memory_bank):
     commit_after = get_current_commit()
 
     # 4. EXTERNAL EVALUATION (The Judge)
-    print(f"📈 Running Evaluator: {' '.join(EVAL_CMD)}...")
-    result = subprocess.run(EVAL_CMD, encoding="utf-8") # capture_output=True, text=True, 
-    
+    # UPDATE THIS BLOCK (around line 102):
+    print(f"📈 Running Evaluator...")
+    # We MUST capture output to use re.search on result.stdout
+    result = subprocess.run(EVAL_CMD, capture_output=True, text=True) 
+
     # Capture the "FINAL_RESULT:X" from evaluator.py
-    match = re.search(r"FINAL_RESULT:([-\d.]+)", result.stdout)
+    raw_output = result.stdout if result.stdout else ""
+    match = re.search(r"FINAL_RESULT:([-\d.]+)", raw_output)
+
+    if match:
+        score = float(match.group(1))
+    else:
+        # If the evaluator crashed (like the Missing Column error), result.stdout 
+        # will contain the error message, but not the FINAL_RESULT string.
+        print(f"⚠️ Evaluator crashed. Check console. Output: {raw_output[:100]}...")
+        score = -10.0
     score = float(match.group(1)) if match else -10.0
     status = "keep" if score > best_score else "discard"
 

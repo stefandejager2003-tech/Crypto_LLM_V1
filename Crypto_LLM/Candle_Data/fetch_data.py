@@ -72,10 +72,16 @@ def fetch_data_for_period(exchange, symbol, timeframe, period):
     # Only keep data AFTER the cutoff
     df = df[df.index >= cutoff_date]
 
-    # --- V2 FEATURES (Calculate AFTER trimming to save time) ---
+    # --- V2 FEATURES (Update this section) ---
     df['log_return'] = np.log(df['close'] / df['close'].shift(1))
     df['atr_14'] = (df['high'] - df['low']).rolling(14).mean()
     df['close_zscore_50'] = (df['close'] - df['close'].rolling(50).mean()) / df['close'].rolling(50).std()
+
+    # ADD THIS LINE:
+    df['volume_zscore_24'] = (df['volume'] - df['volume'].rolling(24).mean()) / df['volume'].rolling(24).std()
+
+    df['cvd'] = ((df['close'] - df['open']) / (df['high'] - df['low']).replace(0, 1)) * df['volume']
+    df['cvd_trend'] = df['cvd'].rolling(window=20).mean()
     
     # Save the cleaned, perfectly-sized window
     df.dropna().to_csv(filename)

@@ -16,25 +16,30 @@ TIMEFRAME_MULTIPLIERS = {
 }
 
 def fetch_data(symbol, timeframe, period):
-    # 1. Clean inputs
+    # 1. Standardize inputs
     clean_tf = timeframe.lower()
     symbol_base = symbol.split('/')[0].lower()
     tf_folder = f"{clean_tf.upper()}_Candle_Data"
     
-    # 2. Path resolution
+    # 2. Build the path
+    # This points to: C:\...\Crypto_LLM\Strategy_Training\
     script_dir = os.path.dirname(os.path.abspath(__file__))
+    
+    # We use ".." to move up to C:\...\Crypto_LLM\ 
+    # then look for Candle_Data
     filename = os.path.join(
         script_dir, 
+        "..",  # This is the fix: Step out of Strategy_Training
         "Candle_Data", 
         tf_folder, 
         f"{symbol_base}_{clean_tf}_{period}.csv"
     )
     
+    # 3. Validation & Loading
     if not os.path.exists(filename):
-        print(f"❌ Error: Data not found at {filename}")
+        print(f"❌ Error: File NOT found at: {os.path.abspath(filename)}")
         return pd.DataFrame()
         
-    # Loaded with index_col=0 to catch 'timestamp' as index
     df = pd.read_csv(filename, index_col=0, parse_dates=True)
     return df
 
@@ -47,7 +52,14 @@ def evaluate_strategy(symbol, timeframe, period):
 
         # 1. Get Data
         df = fetch_data(symbol, timeframe, period)
-        if df.empty: return -1.0
+        if df.empty: return -999.0
+
+        # ADD THIS DATA INTEGRITY CHECK:
+        required = ['log_return', 'cvd_trend', 'volume_zscore_24', 'close_zscore_50']
+        missing = [col for col in required if col not in df.columns]
+        if missing:
+            print(f"❌ Error: CSV is missing columns: {missing}")
+            return -999.0 # Signal a failure to the auto_loop
 
         # 2. Run Strategy
         df = get_signals(df)
